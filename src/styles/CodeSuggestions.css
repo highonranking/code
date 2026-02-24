@@ -1,0 +1,132 @@
+/* Code Suggestions Dropdown Styles */
+
+.code-suggestions-dropdown {
+  position: fixed;
+  background: #2d2d30;
+  border: 1px solid #3e3e42;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  max-width: 400px;
+  max-height: 300px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestions-list {
+  overflow-y: auto;
+  flex: 1;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  color: #cccccc;
+  cursor: pointer;
+  border-bottom: 1px solid #3e3e42;
+  transition: background-color 0.2s;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover,
+.suggestion-item.active {
+  background: #3c3c3c;
+}
+
+.suggestion-item.active {
+  background: #1f4788;
+}
+
+.suggestion-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.suggestion-kind-keyword {
+  color: #569cd6;
+}
+
+.suggestion-kind-function {
+  color: #dcdcaa;
+}
+
+.suggestion-kind-variable {
+  color: #9cdcfe;
+}
+
+.suggestion-kind-tag {
+  color: #4ec9b0;
+}
+
+.suggestion-kind-attribute {
+  color: #ce9178;
+}
+
+.suggestion-kind-property {
+  color: #f0ad4e;
+}
+
+.suggestion-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggestion-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8e8e8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.suggestion-docs {
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-detail {
+  font-size: 11px;
+  color: #777;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scrollbar styling */
+.suggestions-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.suggestions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.suggestions-list::-webkit-scrollbar-thumb {
+  background: #464647;
+  border-radius: 4px;
+}
+
+.suggestions-list::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
