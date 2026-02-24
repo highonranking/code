@@ -1,5 +1,3 @@
-import { getSharedProject } from './firebase-config.js';
-
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -13,6 +11,11 @@ export default async function handler(req, res) {
     return;
   }
 
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!databaseUrl) {
+    return res.status(500).json({ error: 'Firebase database URL not configured' });
+  }
+
   let shareName = req.query.shareName;
 
   if (!shareName) {
@@ -20,9 +23,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    // GET - Retrieve shared project from Firebase
+    // GET - Retrieve shared project from Firebase REST API
     if (req.method === 'GET') {
-      const project = await getSharedProject(shareName);
+      const firebaseUrl = `${databaseUrl}/shared_projects/${shareName}.json`;
+      console.log(`[GET] Retrieving from: ${shareName}`);
+
+      const response = await fetch(firebaseUrl);
+
+      if (!response.ok) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const project = await response.json();
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
@@ -34,6 +46,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('API Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 }

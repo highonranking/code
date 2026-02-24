@@ -1,5 +1,3 @@
-import { getSharedProject, setSharedProject, projectExists, deleteSharedProject } from './firebase-config.js';
-
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -13,6 +11,11 @@ export default async function handler(req, res) {
     return;
   }
 
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!databaseUrl) {
+    return res.status(500).json({ error: 'Firebase database URL not configured' });
+  }
+
   // Parse shareName from query
   let shareName = req.query.shareName;
 
@@ -20,7 +23,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Share name is required' });
   }
 
+  // Validate share name
+  if (!/^[a-zA-Z0-9_-]+$/.test(shareName)) {
+    return res.status(400).json({ error: 'Share name can only contain letters, numbers, underscores, and hyphens' });
+  }
+
   try {
+    const firebaseUrl = `${databaseUrl}/shared_projects/${shareName}.json`;
+
     // POST - Create/share a project
     if (req.method === 'POST') {
       const { project } = req.body;
@@ -33,26 +43,34 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Share name must be at least 2 characters' });
       }
 
-      // Validate share name
-      if (!/^[a-zA-Z0-9_-]+$/.test(shareName)) {
-        return res.status(400).json({ error: 'Share name can only contain letters, numbers, underscores, and hyphens' });
+      console.log(`[POST] Saving project: ${shareName}`);
+
+      // Check if it already exists
+      const checkRes = await fetch(firebaseUrl);
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        if (existing !== null) {
+          return res.status(409).json({ error: 'This share name is already taken' });
+        }
       }
 
-      // Check if name already exists
-      if (await projectExists(shareName)) {
-        return res.status(409).json({ error: 'This share name is already taken' });
-      }
-
-      // Store the project in Firebase
+      // Save the project
       const projectData = {
         ...project,
         shareName,
         sharedAt: Date.now(),
       };
 
-      const saved = await setSharedProject(shareName, projectData);
-      if (!saved) {
-        return res.status(500).json({ error: 'Failed to save project' });
+      const saveRes = await fetch(firebaseUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectData),
+      });
+
+      if (!saveRes.ok) {
+        const error = await saveRes.text();
+        console.error('Firebase save error:', error);
+        return res.status(500).json({ error: 'Failed to save project', detail: error });
       }
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -69,7 +87,15 @@ export default async function handler(req, res) {
 
     // GET - Retrieve shared project
     if (req.method === 'GET') {
-      const project = await getSharedProject(shareName);
+      console.log(`[GET] Retrieving project: ${shareName}`);
+
+      const getRes = await fetch(firebaseUrl);
+
+      if (!getRes.ok) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const project = await getRes.json();
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
@@ -80,12 +106,11 @@ export default async function handler(req, res) {
 
     // DELETE - Remove shared project
     if (req.method === 'DELETE') {
-      if (!(await projectExists(shareName))) {
-        return res.status(404).json({ error: 'Shared project not found' });
-      }
+      console.log(`[DELETE] Removing project: ${shareName}`);
 
-      const deleted = await deleteSharedProject(shareName);
-      if (!deleted) {
+      const deleteRes = await fetch(firebaseUrl, { method: 'DELETE' });
+
+      if (!deleteRes.ok) {
         return res.status(500).json({ error: 'Failed to delete project' });
       }
 
