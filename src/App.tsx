@@ -19,7 +19,7 @@ function App() {
       // Load the shared project
       const shareName = pathMatch[1];
       setIsSharedView(true);
-      fetch(`/api/s/${shareName}`)
+      fetch(`/api/s?shareName=${shareName}`)
         .then(res => res.json())
         .then(data => {
           if (data.error) {
