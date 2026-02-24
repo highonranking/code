@@ -1,4 +1,4 @@
-// Store shared projects - this persists across function invocations in same environment
+// Store shared projects globally
 let sharedProjects = {};
 
 export default async function handler(req, res) {
@@ -13,12 +13,16 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { shareName } = req.query;
-  const method = req.method;
-
-  try {
-    // Share a project
-    if (method === 'POST') {
+  // Parse the path: /api/share/... or /api/s/...
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+  
+  // Match /api/share/:shareName
+  const shareMatch = pathname.match(/^\/api\/share\/([a-zA-Z0-9_-]+)$/);
+  if (shareMatch) {
+    const shareName = shareMatch[1];
+    
+    if (req.method === 'POST') {
       const { project } = req.body;
 
       if (!project) {
@@ -58,19 +62,17 @@ export default async function handler(req, res) {
       });
     }
 
-    // Get shared project
-    if (method === 'GET') {
+    if (req.method === 'GET') {
       const project = sharedProjects[shareName];
 
       if (!project) {
-        return res.status(404).json({ error: 'Project not found. Check the share name.' });
+        return res.status(404).json({ error: 'Project not found' });
       }
 
       return res.json(project);
     }
 
-    // Delete shared project
-    if (method === 'DELETE') {
+    if (req.method === 'DELETE') {
       if (!sharedProjects[shareName]) {
         return res.status(404).json({ error: 'Shared project not found' });
       }
@@ -82,10 +84,33 @@ export default async function handler(req, res) {
         message: `Project '${shareName}' has been unshared`,
       });
     }
-
-    res.status(405).json({ error: 'Method not allowed' });
-  } catch (error) {
-    console.error('API error:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
+
+  // Match /api/s/:shareName
+  const sMatch = pathname.match(/^\/api\/s\/([a-zA-Z0-9_-]+)$/);
+  if (sMatch) {
+    const shareName = sMatch[1];
+
+    if (req.method === 'GET') {
+      const project = sharedProjects[shareName];
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      return res.json(project);
+    }
+  }
+
+  // List shares
+  if (pathname === '/api/shares' && req.method === 'GET') {
+    const shares = Object.keys(sharedProjects).map(name => ({
+      name,
+      url: `/s/${name}`,
+    }));
+
+    return res.json({ shares, count: shares.length });
+  }
+
+  res.status(404).json({ error: 'Not found' });
 }
