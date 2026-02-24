@@ -1,3 +1,53 @@
+import admin from 'firebase-admin';
+
+let db = null;
+let initError = null;
+
+function initializeFirebase() {
+  if (db) return db;
+  if (initError) throw initError;
+
+  try {
+    let privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+    
+    // Ensure the key ends properly
+    if (!privateKey.endsWith('-----END PRIVATE KEY-----')) {
+      if (!privateKey.endsWith('\n')) {
+        privateKey += '\n';
+      }
+      privateKey += '-----END PRIVATE KEY-----';
+    }
+
+    const serviceAccount = {
+      type: 'service_account',
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+      private_key: privateKey,
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      client_id: process.env.FIREBASE_CLIENT_ID,
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
+    };
+
+    if (admin.apps.length === 0) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL,
+      });
+    }
+
+    db = admin.database();
+    console.log('[Firebase] Initialized successfully');
+    return db;
+  } catch (error) {
+    console.error('[Firebase] Init error:', error.message);
+    initError = error;
+    throw error;
+  }
+}
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -9,11 +59,6 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
-  }
-
-  const databaseUrl = process.env.FIREBASE_DATABASE_URL;
-  if (!databaseUrl) {
-    return res.status(500).json({ error: 'Firebase database URL not configured' });
   }
 
   // Parse shareName from query
@@ -29,7 +74,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const firebaseUrl = `${databaseUrl}/shared_projects/${shareName}.json`;
+    const database = initializeFirebase();
 
     // POST - Create/share a project
     if (req.method === 'POST') {
@@ -46,12 +91,9 @@ export default async function handler(req, res) {
       console.log(`[POST] Saving project: ${shareName}`);
 
       // Check if it already exists
-      const checkRes = await fetch(firebaseUrl);
-      if (checkRes.ok) {
-        const existing = await checkRes.json();
-        if (existing !== null) {
-          return res.status(409).json({ error: 'This share name is already taken' });
-        }
+      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
+      if (snapshot.exists()) {
+        return res.status(409).json({ error: 'This share name is already taken' });
       }
 
       // Save the project
@@ -61,17 +103,7 @@ export default async function handler(req, res) {
         sharedAt: Date.now(),
       };
 
-      const saveRes = await fetch(firebaseUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(projectData),
-      });
-
-      if (!saveRes.ok) {
-        const error = await saveRes.text();
-        console.error('Firebase save error:', error);
-        return res.status(500).json({ error: 'Failed to save project', detail: error });
-      }
+      await database.ref(`shared_projects/${shareName}`).set(projectData);
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -89,30 +121,25 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       console.log(`[GET] Retrieving project: ${shareName}`);
 
-      const getRes = await fetch(firebaseUrl);
+      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
 
-      if (!getRes.ok) {
+      if (!snapshot.exists()) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      const project = await getRes.json();
-
-      if (!project) {
-        return res.status(404).json({ error: 'Project not found' });
-      }
-
-      return res.json(project);
+      return res.json(snapshot.val());
     }
 
     // DELETE - Remove shared project
     if (req.method === 'DELETE') {
       console.log(`[DELETE] Removing project: ${shareName}`);
 
-      const deleteRes = await fetch(firebaseUrl, { method: 'DELETE' });
-
-      if (!deleteRes.ok) {
-        return res.status(500).json({ error: 'Failed to delete project' });
+      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
+      if (!snapshot.exists()) {
+        return res.status(404).json({ error: 'Shared project not found' });
       }
+
+      await database.ref(`shared_projects/${shareName}`).remove();
 
       return res.json({
         success: true,
