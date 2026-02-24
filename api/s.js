@@ -1,48 +1,4 @@
-import admin from 'firebase-admin';
-
-let db = null;
-
-function initializeFirebase() {
-  if (db) return db;
-
-  try {
-    let privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-    
-    // Ensure the key ends properly
-    if (!privateKey.endsWith('-----END PRIVATE KEY-----')) {
-      if (!privateKey.endsWith('\n')) {
-        privateKey += '\n';
-      }
-      privateKey += '-----END PRIVATE KEY-----';
-    }
-
-    const serviceAccount = {
-      type: 'service_account',
-      project_id: process.env.FIREBASE_PROJECT_ID,
-      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-      private_key: privateKey,
-      client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      client_id: process.env.FIREBASE_CLIENT_ID,
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-    };
-
-    if (admin.apps.length === 0) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: process.env.FIREBASE_DATABASE_URL,
-      });
-    }
-
-    db = admin.database();
-    return db;
-  } catch (error) {
-    console.error('[Firebase] Init error:', error.message);
-    throw error;
-  }
-}
+// Using Firebase REST API - no SDK needed
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -57,6 +13,11 @@ export default async function handler(req, res) {
     return;
   }
 
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!databaseUrl) {
+    return res.status(500).json({ error: 'Firebase database URL not configured' });
+  }
+
   let shareName = req.query.shareName;
 
   if (!shareName) {
@@ -64,23 +25,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    // GET - Retrieve shared project from Firebase
+    // GET - Retrieve shared project from Firebase REST API
     if (req.method === 'GET') {
-      const database = initializeFirebase();
-      console.log(`[GET] Retrieving project: ${shareName}`);
+      const firebaseUrl = `${databaseUrl}/shared_projects/${shareName}.json`;
+      console.log(`[GET] Retrieving from: ${shareName}`);
 
-      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
+      const response = await fetch(firebaseUrl, { signal: AbortSignal.timeout(5000) });
 
-      if (!snapshot.exists()) {
+      if (!response.ok) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      return res.json(snapshot.val());
+      const project = await response.json();
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      return res.json(project);
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('API Error:', error.message);
+    if (error.name === 'AbortError') {
+      return res.status(504).json({ error: 'Request timeout' });
+    }
     return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 }

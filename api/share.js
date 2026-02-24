@@ -1,52 +1,4 @@
-import admin from 'firebase-admin';
-
-let db = null;
-let initError = null;
-
-function initializeFirebase() {
-  if (db) return db;
-  if (initError) throw initError;
-
-  try {
-    let privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-    
-    // Ensure the key ends properly
-    if (!privateKey.endsWith('-----END PRIVATE KEY-----')) {
-      if (!privateKey.endsWith('\n')) {
-        privateKey += '\n';
-      }
-      privateKey += '-----END PRIVATE KEY-----';
-    }
-
-    const serviceAccount = {
-      type: 'service_account',
-      project_id: process.env.FIREBASE_PROJECT_ID,
-      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-      private_key: privateKey,
-      client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      client_id: process.env.FIREBASE_CLIENT_ID,
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-    };
-
-    if (admin.apps.length === 0) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: process.env.FIREBASE_DATABASE_URL,
-      });
-    }
-
-    db = admin.database();
-    console.log('[Firebase] Initialized successfully');
-    return db;
-  } catch (error) {
-    console.error('[Firebase] Init error:', error.message);
-    initError = error;
-    throw error;
-  }
-}
+// Using Firebase REST API - no SDK needed, faster and more reliable
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -59,6 +11,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
+  }
+
+  const databaseUrl = process.env.FIREBASE_DATABASE_URL;
+  if (!databaseUrl) {
+    return res.status(500).json({ error: 'Firebase database URL not configured' });
   }
 
   // Parse shareName from query
@@ -74,7 +31,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const database = initializeFirebase();
+    const firebaseUrl = `${databaseUrl}/shared_projects/${shareName}.json`;
 
     // POST - Create/share a project
     if (req.method === 'POST') {
@@ -91,9 +48,12 @@ export default async function handler(req, res) {
       console.log(`[POST] Saving project: ${shareName}`);
 
       // Check if it already exists
-      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
-      if (snapshot.exists()) {
-        return res.status(409).json({ error: 'This share name is already taken' });
+      const checkRes = await fetch(firebaseUrl, { signal: AbortSignal.timeout(5000) });
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        if (existing !== null) {
+          return res.status(409).json({ error: 'This share name is already taken' });
+        }
       }
 
       // Save the project
@@ -103,7 +63,18 @@ export default async function handler(req, res) {
         sharedAt: Date.now(),
       };
 
-      await database.ref(`shared_projects/${shareName}`).set(projectData);
+      const saveRes = await fetch(firebaseUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectData),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!saveRes.ok) {
+        const errorText = await saveRes.text();
+        console.error('Firebase save error:', saveRes.status, errorText);
+        return res.status(500).json({ error: 'Failed to save project' });
+      }
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -121,25 +92,33 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       console.log(`[GET] Retrieving project: ${shareName}`);
 
-      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
+      const getRes = await fetch(firebaseUrl, { signal: AbortSignal.timeout(5000) });
 
-      if (!snapshot.exists()) {
+      if (!getRes.ok) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      return res.json(snapshot.val());
+      const project = await getRes.json();
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      return res.json(project);
     }
 
     // DELETE - Remove shared project
     if (req.method === 'DELETE') {
       console.log(`[DELETE] Removing project: ${shareName}`);
 
-      const snapshot = await database.ref(`shared_projects/${shareName}`).get();
-      if (!snapshot.exists()) {
-        return res.status(404).json({ error: 'Shared project not found' });
-      }
+      const deleteRes = await fetch(firebaseUrl, { 
+        method: 'DELETE',
+        signal: AbortSignal.timeout(5000),
+      });
 
-      await database.ref(`shared_projects/${shareName}`).remove();
+      if (!deleteRes.ok) {
+        return res.status(500).json({ error: 'Failed to delete project' });
+      }
 
       return res.json({
         success: true,
@@ -149,7 +128,10 @@ export default async function handler(req, res) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('API Error:', error.message);
+    if (error.name === 'AbortError') {
+      return res.status(504).json({ error: 'Request timeout - Firebase database may be slow' });
+    }
     return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 }
