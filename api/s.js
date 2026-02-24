@@ -1,4 +1,4 @@
-import { getProject } from './storage.js';
+import { getSharedProject } from './firebase-config.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -20,9 +20,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    // GET - Retrieve shared project
+    // GET - Retrieve shared project from Firebase
     if (req.method === 'GET') {
-      const project = getProject(shareName);
+      const project = await getSharedProject(shareName);
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });

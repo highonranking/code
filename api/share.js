@@ -1,4 +1,4 @@
-import { getProject, setProject, deleteProject, projectExists } from './storage.js';
+import { getSharedProject, setSharedProject, projectExists, deleteSharedProject } from './firebase-config.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -39,16 +39,21 @@ export default async function handler(req, res) {
       }
 
       // Check if name already exists
-      if (projectExists(shareName)) {
+      if (await projectExists(shareName)) {
         return res.status(409).json({ error: 'This share name is already taken' });
       }
 
-      // Store the project
-      setProject(shareName, {
+      // Store the project in Firebase
+      const projectData = {
         ...project,
         shareName,
         sharedAt: Date.now(),
-      });
+      };
+
+      const saved = await setSharedProject(shareName, projectData);
+      if (!saved) {
+        return res.status(500).json({ error: 'Failed to save project' });
+      }
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -64,7 +69,7 @@ export default async function handler(req, res) {
 
     // GET - Retrieve shared project
     if (req.method === 'GET') {
-      const project = getProject(shareName);
+      const project = await getSharedProject(shareName);
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
@@ -75,11 +80,14 @@ export default async function handler(req, res) {
 
     // DELETE - Remove shared project
     if (req.method === 'DELETE') {
-      if (!projectExists(shareName)) {
+      if (!(await projectExists(shareName))) {
         return res.status(404).json({ error: 'Shared project not found' });
       }
 
-      deleteProject(shareName);
+      const deleted = await deleteSharedProject(shareName);
+      if (!deleted) {
+        return res.status(500).json({ error: 'Failed to delete project' });
+      }
 
       return res.json({
         success: true,
