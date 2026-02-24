@@ -1,11 +1,10 @@
-// This will share the same sharedProjects store
-// Note: In a real app, you'd use a database
+import { getProject } from './storage.js';
 
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
   // Handle preflight
@@ -21,9 +20,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    // For now, just return not found - share.js handles the actual logic
-    // In production, you'd fetch from a database
-    return res.status(404).json({ error: 'Project not found' });
+    // GET - Retrieve shared project
+    if (req.method === 'GET') {
+      const project = getProject(shareName);
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      return res.json(project);
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('API Error:', error);
     return res.status(500).json({ error: 'Internal server error' });

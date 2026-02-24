@@ -1,8 +1,4 @@
-import fs from 'fs';
-import path from 'path';
-
-// Store shared projects in memory (resets on redeploy)
-let sharedProjects = {};
+import { getProject, setProject, deleteProject, projectExists } from './storage.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -17,16 +13,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Parse shareName from URL or body
+  // Parse shareName from query
   let shareName = req.query.shareName;
-  
-  // If not in query, try to extract from URL path
-  if (!shareName && req.url) {
-    const match = req.url.match(/\/api\/share\/([a-zA-Z0-9_-]+)/);
-    if (match) {
-      shareName = match[1];
-    }
-  }
 
   if (!shareName) {
     return res.status(400).json({ error: 'Share name is required' });
@@ -51,16 +39,16 @@ export default async function handler(req, res) {
       }
 
       // Check if name already exists
-      if (sharedProjects[shareName]) {
+      if (projectExists(shareName)) {
         return res.status(409).json({ error: 'This share name is already taken' });
       }
 
       // Store the project
-      sharedProjects[shareName] = {
+      setProject(shareName, {
         ...project,
         shareName,
         sharedAt: Date.now(),
-      };
+      });
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -76,7 +64,7 @@ export default async function handler(req, res) {
 
     // GET - Retrieve shared project
     if (req.method === 'GET') {
-      const project = sharedProjects[shareName];
+      const project = getProject(shareName);
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
@@ -87,11 +75,11 @@ export default async function handler(req, res) {
 
     // DELETE - Remove shared project
     if (req.method === 'DELETE') {
-      if (!sharedProjects[shareName]) {
+      if (!projectExists(shareName)) {
         return res.status(404).json({ error: 'Shared project not found' });
       }
 
-      delete sharedProjects[shareName];
+      deleteProject(shareName);
 
       return res.json({
         success: true,
