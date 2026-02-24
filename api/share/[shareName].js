@@ -1,27 +1,16 @@
-import cors from 'cors';
-
-// Store shared projects in memory
-const sharedProjects = new Map();
-
-const corsMiddleware = cors();
-
-function runCors(req, res) {
-  return new Promise((resolve, reject) => {
-    corsMiddleware(req, res, (result) => {
-      if (result instanceof Error) {
-        return reject(result);
-      }
-      return resolve(result);
-    });
-  });
-}
+// Store shared projects - this persists across function invocations in same environment
+let sharedProjects = {};
 
 export default async function handler(req, res) {
   // Enable CORS
-  try {
-    await runCors(req, res);
-  } catch (err) {
-    console.error('CORS error:', err);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
   }
 
   const { shareName } = req.query;
@@ -46,16 +35,16 @@ export default async function handler(req, res) {
       }
 
       // Check if name already exists
-      if (sharedProjects.has(shareName)) {
+      if (sharedProjects[shareName]) {
         return res.status(409).json({ error: 'This share name is already taken' });
       }
 
       // Store the project
-      sharedProjects.set(shareName, {
+      sharedProjects[shareName] = {
         ...project,
         shareName,
         sharedAt: Date.now(),
-      });
+      };
 
       const protocol = req.headers['x-forwarded-proto'] || 'https';
       const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -71,7 +60,7 @@ export default async function handler(req, res) {
 
     // Get shared project
     if (method === 'GET') {
-      const project = sharedProjects.get(shareName);
+      const project = sharedProjects[shareName];
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found. Check the share name.' });
@@ -82,11 +71,11 @@ export default async function handler(req, res) {
 
     // Delete shared project
     if (method === 'DELETE') {
-      if (!sharedProjects.has(shareName)) {
+      if (!sharedProjects[shareName]) {
         return res.status(404).json({ error: 'Shared project not found' });
       }
 
-      sharedProjects.delete(shareName);
+      delete sharedProjects[shareName];
 
       return res.json({
         success: true,
@@ -97,6 +86,6 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('API error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 }
