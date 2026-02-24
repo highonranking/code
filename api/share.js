@@ -1,4 +1,7 @@
-// Store shared projects globally
+import fs from 'fs';
+import path from 'path';
+
+// Store shared projects in memory (resets on redeploy)
 let sharedProjects = {};
 
 export default async function handler(req, res) {
@@ -8,20 +11,29 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
+  // Handle preflight
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // Parse the path: /api/share/... or /api/s/...
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
+  // Parse shareName from URL or body
+  let shareName = req.query.shareName;
   
-  // Match /api/share/:shareName
-  const shareMatch = pathname.match(/^\/api\/share\/([a-zA-Z0-9_-]+)$/);
-  if (shareMatch) {
-    const shareName = shareMatch[1];
-    
+  // If not in query, try to extract from URL path
+  if (!shareName && req.url) {
+    const match = req.url.match(/\/api\/share\/([a-zA-Z0-9_-]+)/);
+    if (match) {
+      shareName = match[1];
+    }
+  }
+
+  if (!shareName) {
+    return res.status(400).json({ error: 'Share name is required' });
+  }
+
+  try {
+    // POST - Create/share a project
     if (req.method === 'POST') {
       const { project } = req.body;
 
@@ -29,7 +41,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Missing project data' });
       }
 
-      if (!shareName || shareName.length < 2) {
+      if (shareName.length < 2) {
         return res.status(400).json({ error: 'Share name must be at least 2 characters' });
       }
 
@@ -62,6 +74,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // GET - Retrieve shared project
     if (req.method === 'GET') {
       const project = sharedProjects[shareName];
 
@@ -72,6 +85,7 @@ export default async function handler(req, res) {
       return res.json(project);
     }
 
+    // DELETE - Remove shared project
     if (req.method === 'DELETE') {
       if (!sharedProjects[shareName]) {
         return res.status(404).json({ error: 'Shared project not found' });
@@ -84,33 +98,10 @@ export default async function handler(req, res) {
         message: `Project '${shareName}' has been unshared`,
       });
     }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error) {
+    console.error('API Error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
-
-  // Match /api/s/:shareName
-  const sMatch = pathname.match(/^\/api\/s\/([a-zA-Z0-9_-]+)$/);
-  if (sMatch) {
-    const shareName = sMatch[1];
-
-    if (req.method === 'GET') {
-      const project = sharedProjects[shareName];
-
-      if (!project) {
-        return res.status(404).json({ error: 'Project not found' });
-      }
-
-      return res.json(project);
-    }
-  }
-
-  // List shares
-  if (pathname === '/api/shares' && req.method === 'GET') {
-    const shares = Object.keys(sharedProjects).map(name => ({
-      name,
-      url: `/s/${name}`,
-    }));
-
-    return res.json({ shares, count: shares.length });
-  }
-
-  res.status(404).json({ error: 'Not found' });
 }

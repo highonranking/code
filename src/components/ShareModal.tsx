@@ -28,7 +28,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({ project, onClose }) => {
     setSuccess(false);
 
     try {
-      const response = await axios.post(`/api/share/${shareName}`, {
+      const response = await axios.post(`/api/share?shareName=${shareName}`, {
         project,
       });
 
